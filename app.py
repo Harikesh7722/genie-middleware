@@ -49,3 +49,9 @@ async def ask(request: Request):
 
     except Exception as e:
         return {"error": str(e)}
+
+
+# This is what makes it work when Databricks runs: python app.py
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
