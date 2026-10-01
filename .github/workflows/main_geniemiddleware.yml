@@ -63,4 +63,4 @@ jobs:
         with:
           app-name: 'geniemiddleware'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E87D5A2E877D4EE8BD135A47E7869D6B }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
