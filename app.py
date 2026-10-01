@@ -1,3 +1,5 @@
+import os
+import requests
 from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,26 +8,35 @@ app = FastAPI()
 # Allow Power BI (any origin) to call this app with credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=".*",   # matches any origin but echoes it back specifically
+    allow_origin_regex=".*",
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
 )
 
 # In-memory store for agent mode: conversationId -> messageId
-# (agent poll doesn't receive messageId, so we cache it from the ask step)
 _agent_messages: dict = {}
+
+# ─── Databricks config from environment variables ─────────────────────────────
+DATABRICKS_HOST  = os.environ.get("DATABRICKS_HOST", "").rstrip("/")
+DATABRICKS_TOKEN = os.environ.get("DATABRICKS_TOKEN", "")
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 def genie_api(method: str, path: str, body: dict = None, params: dict = None):
-    """Call any Databricks REST endpoint using the App's built-in identity."""
-    from databricks.sdk import WorkspaceClient
-    w = WorkspaceClient()
+    """Call Databricks REST API using PAT from environment variables."""
+    headers = {
+        "Authorization": f"Bearer {DATABRICKS_TOKEN}",
+        "Content-Type":  "application/json",
+    }
+    url = DATABRICKS_HOST + path
     if method.upper() == "POST":
-        return w.api_client.do("POST", path, body=body or {})
-    return w.api_client.do("GET", path, query=params or {})
+        r = requests.post(url, headers=headers, json=body or {}, timeout=60)
+    else:
+        r = requests.get(url, headers=headers, params=params or {}, timeout=60)
+    r.raise_for_status()
+    return r.json()
 
 
 def fetch_query_result(space_id, conversation_id, message_id):
@@ -62,7 +73,13 @@ def parse_attachments(attachments: list):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    configured = bool(DATABRICKS_HOST and DATABRICKS_TOKEN)
+    return {
+        "status": "ok",
+        "databricks_host_set": bool(DATABRICKS_HOST),
+        "databricks_token_set": bool(DATABRICKS_TOKEN),
+        "configured": configured,
+    }
 
 
 # ─── chat endpoints ───────────────────────────────────────────────────────────
@@ -76,7 +93,6 @@ async def chat_ask(request: Request):
         space_id        = body.get("spaceId", "")
 
         if conversation_id:
-            # Follow-up message in an existing conversation
             result = genie_api(
                 "POST",
                 f"/api/2.0/genie/spaces/{space_id}/conversations/{conversation_id}/messages",
@@ -84,7 +100,6 @@ async def chat_ask(request: Request):
             )
             return {"conversationId": conversation_id, "messageId": result.get("id")}
         else:
-            # Brand-new conversation
             result = genie_api(
                 "POST",
                 f"/api/2.0/genie/spaces/{space_id}/start-conversation",
@@ -161,9 +176,7 @@ async def agent_ask(request: Request):
             conversation_id = result.get("conversation_id")
             message_id      = result.get("message_id")
 
-        # Cache messageId — agent poll doesn't receive it
         _agent_messages[conversation_id] = message_id
-
         return {"conversationId": conversation_id, "messageId": message_id}
     except Exception as e:
         return {"error": str(e)}
@@ -187,8 +200,8 @@ async def agent_poll(
 
         if status != "COMPLETED":
             return {
-                "status":    status,
-                "reasoning": "Genie is analysing your question…",
+                "status":     status,
+                "reasoning":  "Genie is analysing your question…",
                 "queriesRun": 0,
             }
 
@@ -198,7 +211,6 @@ async def agent_poll(
         if sql:
             columns, column_types, rows = fetch_query_result(spaceId, conversationId, message_id)
 
-        # Build the report array the visual renders
         report = []
         if columns:
             report.append({
