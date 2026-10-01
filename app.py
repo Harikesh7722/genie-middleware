@@ -35,8 +35,18 @@ def genie_api(method: str, path: str, body: dict = None, params: dict = None):
         r = requests.post(url, headers=headers, json=body or {}, timeout=60)
     else:
         r = requests.get(url, headers=headers, params=params or {}, timeout=60)
-    r.raise_for_status()
-    return r.json()
+
+    # Surface the actual Databricks error instead of a cryptic JSON parse error
+    if not r.ok:
+        raise Exception(f"Databricks returned HTTP {r.status_code}: {r.text[:500]}")
+
+    if not r.text.strip():
+        raise Exception(f"Databricks returned empty body for {method} {path}")
+
+    try:
+        return r.json()
+    except Exception:
+        raise Exception(f"Databricks returned non-JSON ({r.status_code}): {r.text[:200]}")
 
 
 def fetch_query_result(space_id, conversation_id, message_id):
