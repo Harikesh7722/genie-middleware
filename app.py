@@ -92,6 +92,28 @@ def health():
     }
 
 
+# ─── debug (temporary) ────────────────────────────────────────────────────────
+
+@app.get("/debug")
+def debug():
+    """Temporary: verify PAT works by calling a simple Databricks endpoint."""
+    try:
+        r = requests.get(
+            f"{DATABRICKS_HOST}/api/2.0/token/list",
+            headers={"Authorization": f"Bearer {DATABRICKS_TOKEN}"},
+            timeout=10
+        )
+        return {
+            "status_code": r.status_code,
+            "host": DATABRICKS_HOST,
+            "token_first_5": DATABRICKS_TOKEN[:5] if DATABRICKS_TOKEN else "EMPTY",
+            "token_length": len(DATABRICKS_TOKEN),
+            "response_preview": r.text[:200]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ─── chat endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/api/spm/chat/ask")
