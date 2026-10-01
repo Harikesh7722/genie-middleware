@@ -6,7 +6,7 @@ app = FastAPI()
 # Allow Power BI (any origin) to call this app with credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=".*",   # matches any origin but echoes it back specifically
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
